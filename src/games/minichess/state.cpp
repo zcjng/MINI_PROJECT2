@@ -71,7 +71,9 @@ int State::evaluate(
 
     // [ Hackathon TODO 1-1 ]
     // if in win state, return max score(you can check base_state.hpp for max score)
-    
+    if(this->game_state == WIN){
+        return P_MAX;
+    }
     auto self_board = this->board.board[this->player];
     auto oppn_board = this->board.board[1 - this->player];
     int self_score = 0, oppn_score = 0;
@@ -83,18 +85,72 @@ int State::evaluate(
         int oppn_kr = -1, oppn_kc = -1;
         // [ Hackathon TODO 1-3 ]
         // get the position for player's king and opponent's king
+     
+        /* since the ID of KING=6 */
+        for(int i = 0; i < BOARD_H; i++){
+            for(int j = 0; j < BOARD_W; j++){
+                if(self_board[i][j] == 6){
+                    self_kr = i;
+                    self_kc = j;
+                }
+                if(oppn_board[i][j] == 6){
+                    oppn_kr = i;
+                    oppn_kc = j;
+                }
+                
+            }
+        }
 
         // [ Hackathon TODO 1-4 ]
         // sum player/opponent pieces' value and add to score
         // if enemy king is still on the board, you should also call king_tropism for your pieces and add the value to score
         // king_tropism is already given above
 
+        for(int i = 0; i < BOARD_H; i++){
+            for(int j = 0; j < BOARD_W; j++){
+                int self_piece = self_board[i][j];
+                int oppn_piece = oppn_board[i][j];
+
+                if(self_piece){
+                    self_score += kp_material[self_piece];
+                    self_score += pst[self_piece - 1][i][j];
+
+                    if(oppn_kr != -1 && oppn_kc != -1){ //enemy for self is oppn 
+                        self_score += king_tropism(self_piece, i, j, oppn_kr, oppn_kc);
+                    }
+                }
+
+                if(oppn_piece){
+                    oppn_score += kp_material[oppn_piece];
+                    self_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j]; //since it is mirrored
+
+                    if(self_kr != -1 && self_kc != -1){ //enemy for oppn is self
+                        oppn_score += king_tropism(oppn_piece, i, j, self_kr, self_kc);
+                    }
+                }
+            }
+        }
+
     }else{
         /* === Simple material-only eval === */
 
         // [ Hackathon TODO 1-2 ]
         // Simply add each piece's value to score
+        
+        for(int i = 0; i < BOARD_H; i++){
+            for(int j = 0; j < BOARD_W; j++){
+                int self_piece = self_board[i][j];
+                int oppn_piece = oppn_board[i][j];
 
+                if(self_piece){
+                    self_score += simple_material[self_piece];
+                }
+
+                if(oppn_piece){
+                    oppn_score += simple_material[oppn_piece];
+                }
+            }
+        }
     }
 
     int bonus = 0;
@@ -103,7 +159,20 @@ int State::evaluate(
     if(use_mobility){
         // [ Hackathon TODO 1-5 ]
         // you can calculate mobility by legal actions size
+        
+        if(this->legal_actions.empty() && this->game_state == UNKNOWN){
+            this->get_legal_actions();
+        }
+        int self_mobility = this->legal_actions.size();
+        BaseState* oppn_state = this->create_null_state(); // refer down to this function
+        int oppn_mobility = 0;                              // that returns a mirrored of a given state
+        
+        if(oppn_state){
+            oppn_mobility = oppn_state->legal_actions.size();
+            delete oppn_state;
+        }
         // bonus += 2 * (self_mobility - oppn_mobility);
+        bonus += 2 * (self_mobility - oppn_mobility);
 
     }
 
