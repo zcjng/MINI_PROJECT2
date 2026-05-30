@@ -179,7 +179,7 @@ SearchResult MiniMax::search(
         result.nodes = ctx.nodes;
         result.seldepth = ctx.seldepth;
         result.pv = {result.best_move}; //principal variation
-                                        //meaning beset predicted line of play
+                                        //meaning best predicted line of play
         return result;
 } 
 

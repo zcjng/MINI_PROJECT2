@@ -16,8 +16,8 @@ struct RootUpdate {
 };
 
 struct SearchContext {
-    uint64_t nodes = 0;
-    int seldepth = 0;
+    uint64_t nodes = 0; //how many nodes have we reached
+    int seldepth = 0; //tracks the deepest ply reached
     bool stop = false;
     ParamMap params;
     std::function<void(const RootUpdate&)> on_root_update;
