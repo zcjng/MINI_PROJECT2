@@ -122,7 +122,7 @@ int State::evaluate(
 
                 if(oppn_piece){
                     oppn_score += kp_material[oppn_piece];
-                    self_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j]; //since it is mirrored
+                    oppn_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j]; //since it is mirrored
 
                     if(self_kr != -1 && self_kc != -1){ //enemy for oppn is self
                         oppn_score += king_tropism(oppn_piece, i, j, self_kr, self_kc);
