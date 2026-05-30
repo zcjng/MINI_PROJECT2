@@ -4,7 +4,7 @@ A compact, game-agnostic board-game search engine. The game (MiniChess, played
 on a 6×5 board) lives behind an abstract `BaseState` interface; the search
 algorithms and the protocol layer contain **no** game-specific knowledge. The
 engine speaks **UBGI** — a superset of the UCI chess protocol — over
-stdin/stdout, and ships with Python GUI and CLI front-ends.
+stdin/stdout, and ships with Python GUI and CLI front-ends. testing changes
 
 ```
 +----------------------------------------------+
