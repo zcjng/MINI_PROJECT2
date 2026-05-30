@@ -413,7 +413,7 @@ void State::get_legal_actions_naive(){
                             if(now_piece){
                                 continue;
                             }
-
+                            //moving pieces through offset p
                             all_actions.push_back(Move(Point(i, j), Point(p[0], p[1])));
 
                             oppn_piece = oppn_board[p[0]][p[1]];
