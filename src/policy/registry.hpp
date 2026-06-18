@@ -17,6 +17,8 @@
 #include "alphabeta.hpp"
 #include "random.hpp"
 #include "abmove.hpp"
+#include "quiescence.hpp"
+#include "pvs.hpp"
 
 struct AlgoEntry {
     std::string name;
@@ -57,6 +59,22 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             ABMove::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
                 return ABMove::search(s, d, h, c);
+            }
+        },
+        {
+            "Quiescence",
+            Quiescence::default_params(),
+            Quiescence::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return Quiescence::search(s, d, h, c);
+            }
+        },
+        {
+            "PVS",
+            PVS::default_params(),
+            PVS::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return PVS::search(s, d, h, c);
             }
         },
     };
