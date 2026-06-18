@@ -16,6 +16,7 @@
 #include "minimax.hpp"
 #include "alphabeta.hpp"
 #include "random.hpp"
+#include "abmove.hpp"
 
 struct AlgoEntry {
     std::string name;
@@ -43,11 +44,19 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             }
         },
         {
-            "alphabeta",
+            "AlphaBeta",
             AlphaBeta::default_params(),
             AlphaBeta::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
                 return AlphaBeta::search(s, d, h, c);
+            }
+        },
+        {
+            "ABMove",
+            ABMove::default_params(),
+            ABMove::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return ABMove::search(s, d, h, c);
             }
         },
     };
