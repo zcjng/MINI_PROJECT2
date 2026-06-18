@@ -80,6 +80,7 @@ int PVS::eval_ctx(
 
     order_moves(state, moves);
 
+    bool first_child = true;
 
     for(auto& action : moves){
 
@@ -88,23 +89,64 @@ int PVS::eval_ctx(
 
         bool same = next->same_player_as_parent();
 
-        
-        int child_alpha = same ? alpha : -beta;
-        int child_beta = same ? beta : -alpha;
+        int score;
 
+        if(first_child){
 
-        int raw = PVS::eval_ctx(
-            next,
-            depth - 1,
-            history,
-            ply + 1,
-            ctx,
-            p,
-            child_alpha,
-            child_beta
-        );
+            int child_alpha = same ? alpha : -beta;
+            int child_beta = same ? beta : -alpha;
+    
+    
+            int raw = PVS::eval_ctx(
+                next,
+                depth - 1,
+                history,
+                ply + 1,
+                ctx,
+                p,
+                child_alpha,
+                child_beta
+            );
+            score = same ? raw : -raw; 
 
-        int score = same ? raw : -raw; 
+            first_child = false;
+
+        } else {
+            // Null-window search
+            int child_alpha = same ? alpha : -(alpha + 1);
+            int child_beta  = same ? alpha + 1 : -alpha;
+
+            int raw = PVS::eval_ctx(
+                next,
+                depth - 1,
+                history,
+                ply + 1,
+                ctx,
+                p,
+                child_alpha,
+                child_beta
+            );
+
+            score = same ? raw : -raw;
+
+            if(score > alpha && score < beta){
+                child_alpha = same ? alpha : -beta;
+                child_beta  = same ? beta  : -alpha;
+
+                raw = PVS::eval_ctx(
+                    next,
+                    depth - 1,
+                    history,
+                    ply + 1,
+                    ctx,
+                    p,
+                    child_alpha,
+                    child_beta
+                );
+
+                score = same ? raw : -raw;
+            }
+        }
 
 
         delete next;
@@ -226,7 +268,7 @@ SearchResult PVS::search(
 ParamMap PVS::default_params(){
     return {
         {"UseKPEval", "true"},
-        {"UseEvalMobility", "true"},
+        {"UseEvalMobility", "false"},
         {"ReportPartial", "true"},
     };
 }
@@ -234,7 +276,7 @@ ParamMap PVS::default_params(){
 std::vector<ParamDef> PVS::param_defs(){
     return {
         {"UseKPEval", ParamDef::CHECK, "true"},
-        {"UseEvalMobility", ParamDef::CHECK, "true"},
+        {"UseEvalMobility", ParamDef::CHECK, "false"},
         {"ReportPartial", ParamDef::CHECK, "true"},
     };
 }

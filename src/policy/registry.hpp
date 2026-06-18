@@ -46,7 +46,7 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             }
         },
         {
-            "AlphaBeta",
+            "alphabeta",
             AlphaBeta::default_params(),
             AlphaBeta::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
@@ -54,7 +54,7 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             }
         },
         {
-            "ABMove",
+            "abmove",
             ABMove::default_params(),
             ABMove::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
@@ -62,7 +62,7 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             }
         },
         {
-            "Quiescence",
+            "quiescence",
             Quiescence::default_params(),
             Quiescence::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
@@ -70,7 +70,7 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             }
         },
         {
-            "PVS",
+            "pvs",
             PVS::default_params(),
             PVS::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
