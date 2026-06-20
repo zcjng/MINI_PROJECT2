@@ -14,7 +14,7 @@
 #include "search_types.hpp"
 #include "game_history.hpp"
 #include "minimax.hpp"
-#include "alphabeta.hpp"
+#include "113006121_alphabeta.hpp"
 #include "random.hpp"
 #include "abmove.hpp"
 #include "113006121_quiescence.hpp"
