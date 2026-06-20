@@ -383,110 +383,144 @@ SearchResult PVS::search(
     GameHistory& history,
     SearchContext& ctx
 ){
-    int alpha = M_MAX;
-    int beta = P_MAX;
     ctx.reset();
-    PParams p = PParams::from_map(ctx.params);
-    SearchResult result;
-    result.depth = depth;
 
-    if(!state->legal_actions.size()){
+    PParams p = PParams::from_map(ctx.params);
+
+    SearchResult final_result;
+    final_result.depth = 0;
+    final_result.score = M_MAX;
+    final_result.nodes = 0;
+    final_result.seldepth = 0;
+
+    if(state->legal_actions.empty()){
         state->get_legal_actions();
     }
 
+    for(int current_depth = 1; current_depth <= depth; current_depth++){
 
-    int best_score = M_MAX - 10;
-    int move_index = 0;
-    int total_moves = (int)state->legal_actions.size();
+        int alpha = M_MAX;
+        int beta = P_MAX;
 
+        SearchResult result;
+        result.depth = current_depth;
 
-    std::vector<Move> moves = state->legal_actions;
+        int best_score = M_MAX - 10;
+        int move_index = 0;
+        int total_moves = (int)state->legal_actions.size();
 
-    order_moves(state, moves, 0);
+        std::vector<Move> moves = state->legal_actions;
+        order_moves(state, moves, 0);
 
-    bool first_child = true;
+        bool first_child = true;
 
-    for(auto& action : moves){
-        State* next = state->next_state(action);
-        bool same = next->same_player_as_parent();
+        for(auto& action : moves){
+            if(ctx.stop){
+                break;
+            }
 
-        int score;
+            State* next = state->next_state(action);
+            bool same = next->same_player_as_parent();
 
-        if(first_child){
-            int child_alpha = same ? alpha : -beta;
-            int child_beta  = same ? beta  : -alpha;
+            int score;
 
-            int raw = PVS::eval_ctx(
-                next, depth - 1, history, 1, ctx, p,
-                child_alpha, child_beta
-            );
+            if(first_child){
+                int child_alpha = same ? alpha : -beta;
+                int child_beta  = same ? beta  : -alpha;
 
-            score = same ? raw : -raw;
-            first_child = false;
-        } else {
-            int child_alpha = same ? alpha : -(alpha + 1);
-            int child_beta  = same ? alpha + 1 : -alpha;
-
-            int raw = PVS::eval_ctx(
-                next, depth - 1, history, 1, ctx, p,
-                child_alpha, child_beta
-            );
-
-            score = same ? raw : -raw;
-
-            if(score > alpha && score < beta){
-                child_alpha = same ? alpha : -beta;
-                child_beta  = same ? beta  : -alpha;
-
-                raw = PVS::eval_ctx(
-                    next, depth - 1, history, 1, ctx, p,
-                    child_alpha, child_beta
+                int raw = PVS::eval_ctx(
+                    next,
+                    current_depth - 1,
+                    history,
+                    1,
+                    ctx,
+                    p,
+                    child_alpha,
+                    child_beta
                 );
 
                 score = same ? raw : -raw;
+                first_child = false;
+            }else{
+                int child_alpha = same ? alpha : -(alpha + 1);
+                int child_beta  = same ? alpha + 1 : -alpha;
+
+                int raw = PVS::eval_ctx(
+                    next,
+                    current_depth - 1,
+                    history,
+                    1,
+                    ctx,
+                    p,
+                    child_alpha,
+                    child_beta
+                );
+
+                score = same ? raw : -raw;
+
+                if(score > alpha && score < beta){
+                    child_alpha = same ? alpha : -beta;
+                    child_beta  = same ? beta  : -alpha;
+
+                    raw = PVS::eval_ctx(
+                        next,
+                        current_depth - 1,
+                        history,
+                        1,
+                        ctx,
+                        p,
+                        child_alpha,
+                        child_beta
+                    );
+
+                    score = same ? raw : -raw;
+                }
             }
+
+            delete next;
+
+            if(score > best_score){
+                best_score = score;
+                result.best_move = action;
+
+                if(p.report_partial && ctx.on_root_update){
+                    ctx.on_root_update({
+                        result.best_move,
+                        best_score,
+                        current_depth,
+                        move_index + 1,
+                        total_moves
+                    });
+                }
+            }
+
+            alpha = std::max(alpha, best_score);
+
+            if(alpha >= beta){
+                break;
+            }
+
+            move_index++;
         }
 
-        delete next;
-
-        if(score > best_score){
-            best_score = score;
-            result.best_move = action;
-
-            if(p.report_partial && ctx.on_root_update){
-                ctx.on_root_update({
-                    result.best_move,
-                    best_score,
-                    depth,
-                    move_index + 1,
-                    total_moves
-                });
-            }
-        }
-
-        alpha = std::max(alpha, best_score);
-
-        if(alpha >= beta){
+        if(ctx.stop){
             break;
         }
 
-        move_index++;
-    }
-
-    // [ Hackathon TODO 4-3 ]
-    // update result and return
         result.score = best_score;
-        result.depth = depth;
+        result.depth = current_depth;
         result.nodes = ctx.nodes;
         result.seldepth = ctx.seldepth;
-        result.pv = {result.best_move}; //principal variation
-        
-        //meaning best predicted line of play
-        
+        result.pv = {result.best_move};
+
+        final_result = result;
+
         last_best_move = result.best_move;
         last_best_valid = true;
-        return result;
-} 
+    }
+
+    return final_result;
+}
 
 
 /*============================================================
