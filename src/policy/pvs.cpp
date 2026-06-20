@@ -397,6 +397,11 @@ SearchResult PVS::search(
         state->get_legal_actions();
     }
 
+    if(!state->legal_actions.empty()){
+        final_result.best_move = state->legal_actions[0];
+    }
+
+
     for(int current_depth = 1; current_depth <= depth; current_depth++){
 
         int alpha = M_MAX;
@@ -504,6 +509,9 @@ SearchResult PVS::search(
         }
 
         if(ctx.stop){
+            if(final_result.depth > 0){
+                return final_result;
+            }
             break;
         }
 
