@@ -10,20 +10,44 @@
  * Negamax with alpha beta pruning. Caller manages memory.
  *============================================================*/
 
+static int piece_value(int p){
+    static const int val[7] = {0, 20, 60, 70, 80, 200, 1000};
+    if(p < 0 || p > 0) return 0;
+    return val[p];
+}
+
+static int move_score(State* state, const Move& m){
+    int from_r = m.first.first;
+    int from_c = m.first.second;
+    int to_r = m.second.first;
+    int to_c = m.second.second;
+
+    int attacker = state->piece_at(state->player, from_r, from_c);
+    int victim = state->piece_at(1 - state->player, to_r, to_c);
+
+    int score = 0;
+
+    if(victim){
+        score += 100000;
+        score += 10 * piece_value(victim);
+        score -= piece_value(attacker);
+
+        if(victim == 6){
+            score += 10000000;
+        }
+    }
+
+    if(attacker == 1 && (to_r == 0 || to_r == state->board_h() - 1)){
+        score += piece_value(5);
+    }
+
+    return score;
+}
+
 static void order_moves(State* state, std::vector<Move>& moves){
     std::sort(moves.begin(), moves.end(),
         [&](const Move& a, const Move& b){
-
-            int ar = a.second.first;
-            int ac = a.second.second;
-
-            int br = b.second.first;
-            int bc = b.second.second;
-
-            int capA = state->piece_at(1-state->player, ar, ac);
-            int capB = state->piece_at(1-state->player, br, bc);
-
-            return capA > capB;
+            return move_score(state, a) > move_score(state, b);
         });
 }
 
