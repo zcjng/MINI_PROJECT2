@@ -12,6 +12,8 @@
 
 static Move killer_moves[64][2];
 static bool killer_valid[64][2] = {};
+static Move last_best_move;
+static bool last_best_valid = false;
 
 static int history_score[BOARD_H][BOARD_W][BOARD_H][BOARD_W] = {};
 
@@ -36,6 +38,10 @@ static int move_score(State* state, const Move& m, int ply){
     int victim = state->piece_at(1 - state->player, to_r, to_c);
 
     int score = 0;
+
+    if(ply == 0 && last_best_valid && same_move(m, last_best_move)){
+        score += 20000000;
+    }
 
     if(victim){
         score += 100000;
@@ -69,6 +75,113 @@ static void order_moves(State* state, std::vector<Move>& moves, int ply){ //adde
             return move_score(state, a, ply) > move_score(state, b, ply);
         });
 }
+
+/*
+static bool is_capture(State* state, const Move& move) {
+    int r = move.second.first;
+    int c = move.second.second;
+
+    return state->piece_at(1 - state->player, r, c) != 0;
+}
+
+int PVS::quiescence(
+    State *state,
+    GameHistory& history,
+    int ply,
+    int qdepth,
+    SearchContext& ctx,
+    const PParams& p,
+    int alpha,
+    int beta
+){
+    ctx.nodes++;
+
+    if(ply > ctx.seldepth){
+        ctx.seldepth = ply;
+    }
+
+    if(ctx.stop){
+        return 0;
+    }
+
+    if(qdepth <= 0){
+        return state->evaluate(
+            p.use_kp_eval,
+            p.use_eval_mobility,
+            &history
+        );
+    }
+
+
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
+        state->get_legal_actions();
+    }
+
+    if(state->game_state == WIN){
+        return P_MAX - ply;
+    }
+
+    if(state->game_state == DRAW){
+        return 0;
+    }
+
+    int stand_pat = state->evaluate(
+        p.use_kp_eval,
+        p.use_eval_mobility,
+        &history
+    );
+
+    if(stand_pat >= beta){
+        return beta;
+    }
+
+    if(stand_pat > alpha){
+        alpha = stand_pat;
+    }
+
+    std::vector<Move> moves = state->legal_actions;
+    order_moves(state, moves, ply);
+
+    for(auto& action : moves){
+
+        if(!is_capture(state, action)){
+            continue;
+        }
+
+        State* next = state->next_state(action);
+
+        bool same = next->same_player_as_parent();
+
+        int child_alpha = same ? alpha : -beta;
+        int child_beta  = same ? beta  : -alpha;
+
+        int raw = PVS::quiescence(
+            next,
+            history,
+            ply + 1,
+            qdepth - 1,
+            ctx,
+            p,
+            child_alpha,
+            child_beta
+        );
+
+        int score = same ? raw : -raw;
+
+        delete next;
+
+        if(score >= beta){
+            return beta;
+        }
+
+        if(score > alpha){
+            alpha = score;
+        }
+    }
+
+    return alpha;
+}
+*/
 
 int PVS::eval_ctx(
     State *state,
@@ -109,8 +222,10 @@ int PVS::eval_ctx(
 
     if(depth <= 0){
         int score = state->evaluate(
-            p.use_kp_eval, p.use_eval_mobility, &history
-        ); 
+            p.use_kp_eval,
+            p.use_eval_mobility,
+            &history
+        );
         history.pop(state->hash());
         return score;
     }
@@ -125,6 +240,8 @@ int PVS::eval_ctx(
 
     bool first_child = true;
 
+    int move_index = 0;
+
     for(auto& action : moves){
 
 
@@ -134,6 +251,15 @@ int PVS::eval_ctx(
 
         int score;
 
+        int new_depth = depth - 1;
+
+        bool quiet = !state->piece_at(1 - state->player, action.second.first, action.second.second);
+        bool can_lmr = !first_child && quiet && depth >= 4 && move_index >= 4;
+
+        if(can_lmr){
+            new_depth = depth - 2;
+        }
+
         if(first_child){
 
             int child_alpha = same ? alpha : -beta;
@@ -142,7 +268,7 @@ int PVS::eval_ctx(
     
             int raw = PVS::eval_ctx(
                 next,
-                depth - 1,
+                new_depth,
                 history,
                 ply + 1,
                 ctx,
@@ -154,6 +280,7 @@ int PVS::eval_ctx(
 
             first_child = false;
 
+            
         } else {
             // Null-window search
             int child_alpha = same ? alpha : -(alpha + 1);
@@ -161,7 +288,7 @@ int PVS::eval_ctx(
 
             int raw = PVS::eval_ctx(
                 next,
-                depth - 1,
+                new_depth,
                 history,
                 ply + 1,
                 ctx,
@@ -172,6 +299,24 @@ int PVS::eval_ctx(
 
             score = same ? raw : -raw;
 
+            if(can_lmr && score > alpha){
+                int child_alpha = same ? alpha : -beta;
+                int child_beta  = same ? beta  : -alpha;
+
+                int raw = PVS::eval_ctx(
+                    next,
+                    depth - 1,
+                    history,
+                    ply + 1,
+                    ctx,
+                    p,
+                    child_alpha,
+                    child_beta
+                );
+
+                score = same ? raw : -raw;
+            }
+            
             if(score > alpha && score < beta){
                 child_alpha = same ? alpha : -beta;
                 child_beta  = same ? beta  : -alpha;
@@ -214,12 +359,12 @@ int PVS::eval_ctx(
                 int tr = action.second.first;
                 int tc = action.second.second;
 
-                history_score[fr][fc][tr][tc] += depth * depth;
+                history_score[fr][fc][tr][tc] = std::min(history_score[fr][fc][tr][tc] + depth * depth, 100000);
             }
 
             break;
         }
-
+        move_index++;
     }
 
     history.pop(state->hash());
@@ -335,7 +480,11 @@ SearchResult PVS::search(
         result.nodes = ctx.nodes;
         result.seldepth = ctx.seldepth;
         result.pv = {result.best_move}; //principal variation
-                                        //meaning best predicted line of play
+        
+        //meaning best predicted line of play
+        
+        last_best_move = result.best_move;
+        last_best_valid = true;
         return result;
 } 
 

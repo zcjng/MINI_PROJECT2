@@ -15,7 +15,7 @@
  *============================================================*/
 
 // KP material (10x scale for fine positional granularity)
-static const int kp_material[7] = {0, 20, 60, 70, 80, 220, 1000};
+static const int kp_material[7] = {0, 20, 60, 70, 80, 200, 1000};
 
 // Material-only (simple scale)
 static const int simple_material[7] = {0, 2, 6, 7, 8, 20, 100};
@@ -140,13 +140,6 @@ int State::evaluate(
                 }
             }
         }
-        if(self_kr != -1){
-            self_score += 20 * (self_kr == (this->player == 0 ? BOARD_H - 1 : 0));
-        }
-
-        if(oppn_kr != -1){
-            oppn_score += 20 * (oppn_kr == (this->player == 0 ? 0 : BOARD_H - 1));
-        }
 
 
     }else{
@@ -186,10 +179,14 @@ int State::evaluate(
         int oppn_mobility = 0;                              // that returns a mirrored of a given state
         
         if(oppn_state){
+            if(oppn_state->game_state == WIN){
+                bonus -= 350;
+            }
+
             oppn_mobility = oppn_state->legal_actions.size();
             delete oppn_state;
         }
-        // bonus += 2 * (self_mobility - oppn_mobility);
+
         bonus += 2 * (self_mobility - oppn_mobility);
 
     }

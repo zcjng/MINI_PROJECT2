@@ -37,4 +37,5 @@ public:
 
     static ParamMap default_params();
     static std::vector<ParamDef> param_defs();
+
 };
