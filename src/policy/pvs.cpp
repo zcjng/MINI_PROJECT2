@@ -10,13 +10,23 @@
  * Negamax with alpha beta pruning. Caller manages memory.
  *============================================================*/
 
+static Move killer_moves[64][2];
+static bool killer_valid[64][2] = {};
+
+static int history_score[BOARD_H][BOARD_W][BOARD_H][BOARD_W] = {};
+
+static bool same_move(const Move& a, const Move& b){
+    return a.first == b.first && a.second == b.second;
+}
+
+
 static int piece_value(int p){
     static const int val[7] = {0, 20, 60, 70, 80, 200, 1000};
-    if(p < 0 || p > 0) return 0;
+    if(p < 0 || p > 6) return 0;
     return val[p];
 }
 
-static int move_score(State* state, const Move& m){
+static int move_score(State* state, const Move& m, int ply){
     int from_r = m.first.first;
     int from_c = m.first.second;
     int to_r = m.second.first;
@@ -35,6 +45,15 @@ static int move_score(State* state, const Move& m){
         if(victim == 6){
             score += 10000000;
         }
+    } else {
+        if(ply < 64){
+            if(killer_valid[ply][0] && same_move(m, killer_moves[ply][0]))
+                score += 90000;
+            else if(killer_valid[ply][1] && same_move(m, killer_moves[ply][1]))
+                score += 80000;
+        }
+
+        score += history_score[from_r][from_c][to_r][to_c];
     }
 
     if(attacker == 1 && (to_r == 0 || to_r == state->board_h() - 1)){
@@ -44,10 +63,10 @@ static int move_score(State* state, const Move& m){
     return score;
 }
 
-static void order_moves(State* state, std::vector<Move>& moves){
+static void order_moves(State* state, std::vector<Move>& moves, int ply){ //added ply 
     std::sort(moves.begin(), moves.end(),
         [&](const Move& a, const Move& b){
-            return move_score(state, a) > move_score(state, b);
+            return move_score(state, a, ply) > move_score(state, b, ply);
         });
 }
 
@@ -102,7 +121,7 @@ int PVS::eval_ctx(
 
     std::vector<Move> moves = state->legal_actions;
 
-    order_moves(state, moves);
+    order_moves(state, moves, ply);
 
     bool first_child = true;
 
@@ -179,7 +198,27 @@ int PVS::eval_ctx(
         if(score > best_score) best_score = score;
 
         alpha = std::max(alpha, best_score);
-        if(alpha >= beta) break;
+        if(alpha >= beta){
+            if(!state->piece_at(1 - state->player, action.second.first, action.second.second) && ply < 64){
+
+                if(!killer_valid[ply][0] || !same_move(action, killer_moves[ply][0])){
+                    killer_moves[ply][1] = killer_moves[ply][0];
+                    killer_valid[ply][1] = killer_valid[ply][0];
+
+                    killer_moves[ply][0] = action;
+                    killer_valid[ply][0] = true;
+                }
+
+                int fr = action.first.first;
+                int fc = action.first.second;
+                int tr = action.second.first;
+                int tc = action.second.second;
+
+                history_score[fr][fc][tr][tc] += depth * depth;
+            }
+
+            break;
+        }
 
     }
 
@@ -218,60 +257,75 @@ SearchResult PVS::search(
 
     std::vector<Move> moves = state->legal_actions;
 
-    order_moves(state, moves);
+    order_moves(state, moves, 0);
+
+    bool first_child = true;
 
     for(auto& action : moves){
-        /* [ Hackathon TODO 4-1 ]
-         * search this move like TODO 3, but starting from the root */
         State* next = state->next_state(action);
-
         bool same = next->same_player_as_parent();
 
-        int child_alpha = same ? alpha : -beta;
-        int child_beta = same ? beta : -alpha;
+        int score;
 
-        int raw = PVS::eval_ctx(
-            next,
-            depth - 1,
-            history,
-            1,      //because we are at the child, ply = 1
-            ctx,
-            p,
-            child_alpha,
-            child_beta
-        );
-        
+        if(first_child){
+            int child_alpha = same ? alpha : -beta;
+            int child_beta  = same ? beta  : -alpha;
 
-        int score = same ? raw : -raw;
+            int raw = PVS::eval_ctx(
+                next, depth - 1, history, 1, ctx, p,
+                child_alpha, child_beta
+            );
+
+            score = same ? raw : -raw;
+            first_child = false;
+        } else {
+            int child_alpha = same ? alpha : -(alpha + 1);
+            int child_beta  = same ? alpha + 1 : -alpha;
+
+            int raw = PVS::eval_ctx(
+                next, depth - 1, history, 1, ctx, p,
+                child_alpha, child_beta
+            );
+
+            score = same ? raw : -raw;
+
+            if(score > alpha && score < beta){
+                child_alpha = same ? alpha : -beta;
+                child_beta  = same ? beta  : -alpha;
+
+                raw = PVS::eval_ctx(
+                    next, depth - 1, history, 1, ctx, p,
+                    child_alpha, child_beta
+                );
+
+                score = same ? raw : -raw;
+            }
+        }
 
         delete next;
 
-
         if(score > best_score){
-            // [ Hackathon TODO 4-2 ]
-            // keep this move if it is the best so far
             best_score = score;
             result.best_move = action;
-            //report partial -> someone is listening for progress updates
-            // so the engine sends updates while it is thinking
-            
-            if(p.report_partial && ctx.on_root_update){ //live search progress
-                ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
-            }
-            //basically when you press analyze on the gui
 
-            //on_root_update, means someone has provided callback function to receive the progress updates
-        }   // ON_ROOT_UPDATE -> Best move so far, best score so far, current search depth, which legal move index
-                //total number of root moves
+            if(p.report_partial && ctx.on_root_update){
+                ctx.on_root_update({
+                    result.best_move,
+                    best_score,
+                    depth,
+                    move_index + 1,
+                    total_moves
+                });
+            }
+        }
 
         alpha = std::max(alpha, best_score);
-        if(alpha >= beta) break;
+
+        if(alpha >= beta){
+            break;
+        }
 
         move_index++;
-        // move to the next root move
-        // checking move 1 of 7 
-        // checking move 2 of 7 
-        // ...
     }
 
     // [ Hackathon TODO 4-3 ]
