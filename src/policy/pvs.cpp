@@ -41,7 +41,10 @@ static TTEntry* tt_probe(uint64_t key){
 static void tt_store(uint64_t key, int depth, int score, TTFlag flag, const Move& best_move){
     TTEntry& e = tt[key & (TT_SIZE - 1)];
 
-    if(!e.valid || depth >= e.depth){
+    // A collision must be replaceable even when the unrelated entry happened
+    // to be searched more deeply. Otherwise that bucket can become unusable
+    // for the rest of the game.
+    if(!e.valid || e.key != key || depth >= e.depth){
         e.key = key;
         e.depth = depth;
         e.score = score;
@@ -49,6 +52,18 @@ static void tt_store(uint64_t key, int depth, int score, TTFlag flag, const Move
         e.best_move = best_move;
         e.valid = true;
     }
+}
+
+static int score_to_tt(int score, int ply){
+    if(score >= P_MAX - 128) return score + ply;
+    if(score <= M_MAX + 128) return score - ply;
+    return score;
+}
+
+static int score_from_tt(int score, int ply){
+    if(score >= P_MAX - 128) return score - ply;
+    if(score <= M_MAX + 128) return score + ply;
+    return score;
 }
 
 //------------------------------
@@ -150,15 +165,6 @@ int PVS::quiescence(
         return 0;
     }
 
-    if(qdepth <= 0){
-        return state->evaluate(
-            p.use_kp_eval,
-            p.use_eval_mobility,
-            &history
-        );
-    }
-
-
     if(state->legal_actions.empty() && state->game_state == UNKNOWN){
         state->get_legal_actions();
     }
@@ -171,6 +177,14 @@ int PVS::quiescence(
         return 0;
     }
 
+
+    if(qdepth <= 0){
+        return state->evaluate(
+            p.use_kp_eval,
+            p.use_eval_mobility,
+            &history
+        );
+    }
 
 
     int stand_pat = state->evaluate(
@@ -273,17 +287,18 @@ int PVS::eval_ctx(
 
     TTEntry* entry = tt_probe(key);
     if(entry && entry->depth >= depth){
+        int tt_score = score_from_tt(entry->score, ply);
         if(entry->flag == TT_EXACT){
-            return entry->score;
+            return tt_score;
         }
         if(entry->flag == TT_LOWER){
-            alpha = std::max(alpha, entry->score);
+            alpha = std::max(alpha, tt_score);
         }else if(entry->flag == TT_UPPER){
-            beta = std::min(beta, entry->score);
+            beta = std::min(beta, tt_score);
         }
 
         if(alpha >= beta){
-            return entry->score;
+            return tt_score;
         }
     }
 
@@ -294,7 +309,7 @@ int PVS::eval_ctx(
             state,
             history,
             ply,
-            2,
+            p.quiescence_depth,
             ctx,
             p,
             alpha,
@@ -332,9 +347,18 @@ int PVS::eval_ctx(
 
         int new_depth = depth - 1;
 
-        //bool quiet = !state->piece_at(1 - state->player, action.second.first, action.second.second);
-        //bool can_lmr = !first_child && quiet && depth >= 5 && move_index >= 6;
-        bool can_lmr = false;
+        bool quiet = !state->piece_at(
+            1 - state->player,
+            action.second.first,
+            action.second.second
+        );
+        bool promotion = state->piece_at(
+            state->player,
+            action.first.first,
+            action.first.second
+        ) == 1 && (action.second.first == 0 || action.second.first == BOARD_H - 1);
+        bool can_lmr = p.use_lmr && !first_child && quiet && !promotion
+            && depth >= 4 && move_index >= 4;
         if(can_lmr){
             new_depth = depth - 2;
         }
@@ -362,6 +386,7 @@ int PVS::eval_ctx(
             
         } else {
             // Null-window search
+            bool full_window_done = false;
             int child_alpha = same ? alpha : -(alpha + 1);
             int child_beta  = same ? alpha + 1 : -alpha;
 
@@ -394,9 +419,10 @@ int PVS::eval_ctx(
                 );
 
                 score = same ? raw : -raw;
+                full_window_done = true;
             }
-            
-            if(score > alpha && score < beta){
+
+            if(!full_window_done && score > alpha && score < beta){
                 child_alpha = same ? alpha : -beta;
                 child_beta  = same ? beta  : -alpha;
 
@@ -463,7 +489,7 @@ int PVS::eval_ctx(
             flag = TT_EXACT;
         }
 
-        tt_store(key, depth, best_score, flag, best_move);
+        tt_store(key, depth, score_to_tt(best_score, ply), flag, best_move);
     }
     history.pop(key);
     return best_score;
@@ -475,6 +501,27 @@ int PVS::eval_ctx(
  *
  * Iterate legal moves, call eval_ctx, return SearchResult.
  *============================================================*/
+std::vector<Move> extract_pv(State* root, int max_len){
+    std::vector<Move> pv;
+    State* cur = root;
+    bool owns = false;
+
+    for(int i = 0; i < max_len; i++){
+        uint64_t key = cur->hash();
+        TTEntry* e = tt_probe(key);
+        if(!e || !e->valid) break;
+
+        pv.push_back(e->best_move);
+        State* next = cur->next_state(e->best_move);
+        if(owns) delete cur;
+        cur = next;
+        owns = true;
+    }
+
+    if(owns) delete cur;
+    return pv;
+}
+
 SearchResult PVS::search(
     State *state,
     int depth,
@@ -485,154 +532,103 @@ SearchResult PVS::search(
 
     PParams p = PParams::from_map(ctx.params);
 
-    SearchResult final_result;
-    final_result.depth = 0;
-    final_result.score = M_MAX;
-    final_result.nodes = 0;
-    final_result.seldepth = 0;
+    SearchResult result;
+    result.depth = depth;
+    result.score = M_MAX;
 
     if(state->legal_actions.empty()){
         state->get_legal_actions();
     }
 
     if(!state->legal_actions.empty()){
-        final_result.best_move = state->legal_actions[0];
+        result.best_move = state->legal_actions[0];
     }
 
+    int alpha = M_MAX;
+    int beta = P_MAX;
+    int best_score = M_MAX;
+    int move_index = 0;
+    int total_moves = static_cast<int>(state->legal_actions.size());
+    uint64_t root_key = state->hash();
+    TTEntry* root_entry = tt_probe(root_key);
+    std::vector<Move> moves = state->legal_actions;
+    order_moves(state, moves, 0, root_entry ? &root_entry->best_move : nullptr);
+    bool first_child = true;
 
-    for(int current_depth = 1; current_depth <= depth; current_depth++){
+    for(auto& action : moves){
+        if(ctx.stop) break;
 
-        int alpha = M_MAX;
-        int beta = P_MAX;
+        State* next = state->next_state(action);
+        bool same = next->same_player_as_parent();
+        int score;
 
-        SearchResult result;
-        result.depth = current_depth;
+        if(first_child){
+            int child_alpha = same ? alpha : -beta;
+            int child_beta  = same ? beta  : -alpha;
 
-        int best_score = M_MAX - 10;
-        int move_index = 0;
-        int total_moves = (int)state->legal_actions.size();
+            int raw = PVS::eval_ctx(
+                next, depth - 1, history, 1, ctx, p,
+                child_alpha, child_beta
+            );
 
-        std::vector<Move> moves = state->legal_actions;
-        uint64_t root_key = state->hash();
-        TTEntry* root_entry = tt_probe(root_key);
-        const Move* root_tt_move = root_entry ? &root_entry->best_move : nullptr;
-        order_moves(state, moves, 0, root_tt_move);
+            score = same ? raw : -raw;
+            first_child = false;
+        }else{
+            int child_alpha = same ? alpha : -(alpha + 1);
+            int child_beta  = same ? alpha + 1 : -alpha;
 
-        bool first_child = true;
+            int raw = PVS::eval_ctx(
+                next, depth - 1, history, 1, ctx, p,
+                child_alpha, child_beta
+            );
 
-        for(auto& action : moves){
-            if(ctx.stop){
-                break;
-            }
+            score = same ? raw : -raw;
 
-            State* next = state->next_state(action);
+            if(score > alpha && score < beta){
+                child_alpha = same ? alpha : -beta;
+                child_beta  = same ? beta  : -alpha;
 
-            
-
-            bool same = next->same_player_as_parent();
-
-            int score;
-
-            if(first_child){
-                int child_alpha = same ? alpha : -beta;
-                int child_beta  = same ? beta  : -alpha;
-
-                int raw = PVS::eval_ctx(
-                    next,
-                    current_depth - 1,
-                    history,
-                    1,
-                    ctx,
-                    p,
-                    child_alpha,
-                    child_beta
+                raw = PVS::eval_ctx(
+                    next, depth - 1, history, 1, ctx, p,
+                    child_alpha, child_beta
                 );
 
                 score = same ? raw : -raw;
-                first_child = false;
-            }else{
-                int child_alpha = same ? alpha : -(alpha + 1);
-                int child_beta  = same ? alpha + 1 : -alpha;
-
-                int raw = PVS::eval_ctx(
-                    next,
-                    current_depth - 1,
-                    history,
-                    1,
-                    ctx,
-                    p,
-                    child_alpha,
-                    child_beta
-                );
-
-                score = same ? raw : -raw;
-
-                if(score > alpha && score < beta){
-                    child_alpha = same ? alpha : -beta;
-                    child_beta  = same ? beta  : -alpha;
-
-                    raw = PVS::eval_ctx(
-                        next,
-                        current_depth - 1,
-                        history,
-                        1,
-                        ctx,
-                        p,
-                        child_alpha,
-                        child_beta
-                    );
-
-                    score = same ? raw : -raw;
-                }
             }
-
-            delete next;
-
-            if(score > best_score){
-                best_score = score;
-                result.best_move = action;
-
-                if(p.report_partial && ctx.on_root_update){
-                    ctx.on_root_update({
-                        result.best_move,
-                        best_score,
-                        current_depth,
-                        move_index + 1,
-                        total_moves
-                    });
-                }
-            }
-
-            alpha = std::max(alpha, best_score);
-
-            if(alpha >= beta){
-                break;
-            }
-
-            move_index++;
         }
 
-        if(ctx.stop){
-            if(final_result.depth > 0){
-                return final_result;
+        delete next;
+
+        if(score > best_score){
+            best_score = score;
+            result.best_move = action;
+
+            if(p.report_partial && ctx.on_root_update){
+                ctx.on_root_update({
+                    result.best_move, best_score, depth,
+                    move_index + 1, total_moves
+                });
             }
-            break;
         }
 
-        result.score = best_score;
-        result.depth = current_depth;
-        result.nodes = ctx.nodes;
-        result.seldepth = ctx.seldepth;
-        result.pv = {result.best_move};
-
-        final_result = result;
-
-        last_best_move = result.best_move;
-        last_best_valid = true;
+        alpha = std::max(alpha, best_score);
+        move_index++;
     }
 
-    return final_result;
+    result.score = best_score;
+    result.nodes = ctx.nodes;
+    result.seldepth = ctx.seldepth;
+    if(!moves.empty() && !ctx.stop){
+        tt_store(root_key, depth, score_to_tt(best_score, 0), TT_EXACT, result.best_move);
+    }
+    result.pv = extract_pv(state, depth);
+    if(result.pv.empty() && !moves.empty()) result.pv.push_back(result.best_move);
+    last_best_move = result.best_move;
+    last_best_valid = !moves.empty();
+    return result;
 }
+
+
 
 
 /*============================================================
@@ -643,6 +639,8 @@ ParamMap PVS::default_params(){
         {"UseKPEval", "true"},
         {"UseEvalMobility", "true"},
         {"ReportPartial", "true"},
+        {"QuiescenceDepth", "12"},
+        {"UseLMR", "true"},
     };
 }
 
@@ -651,5 +649,7 @@ std::vector<ParamDef> PVS::param_defs(){
         {"UseKPEval", ParamDef::CHECK, "true"},
         {"UseEvalMobility", ParamDef::CHECK, "true"},
         {"ReportPartial", ParamDef::CHECK, "true"},
+        {"QuiescenceDepth", ParamDef::SPIN, "12", 1, 32},
+        {"UseLMR", ParamDef::CHECK, "true"},
     };
 }

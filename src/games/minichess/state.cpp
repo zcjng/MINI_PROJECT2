@@ -176,16 +176,14 @@ int State::evaluate(
             this->get_legal_actions();
         }
         int self_mobility = this->legal_actions.size();
-        BaseState* oppn_state = this->create_null_state(); // refer down to this function
-        int oppn_mobility = 0;                              // that returns a mirrored of a given state
-        
-        if(oppn_state){
-            if(oppn_state->game_state == WIN){
-                bonus -= 1000;
-            }
+        // This is a hot leaf-evaluation path. A stack state avoids one heap
+        // allocation/deallocation for every evaluated position.
+        State oppn_state(this->board, 1 - this->player);
+        oppn_state.get_legal_actions();
+        int oppn_mobility = static_cast<int>(oppn_state.legal_actions.size());
 
-            oppn_mobility = oppn_state->legal_actions.size();
-            delete oppn_state;
+        if(oppn_state.game_state == WIN){
+            bonus -= 1000;
         }
 
         bonus += 2 * (self_mobility - oppn_mobility);
