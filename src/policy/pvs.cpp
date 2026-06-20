@@ -346,7 +346,7 @@ SearchResult PVS::search(
 ParamMap PVS::default_params(){
     return {
         {"UseKPEval", "true"},
-        {"UseEvalMobility", "false"},
+        {"UseEvalMobility", "true"},
         {"ReportPartial", "true"},
     };
 }
@@ -354,7 +354,7 @@ ParamMap PVS::default_params(){
 std::vector<ParamDef> PVS::param_defs(){
     return {
         {"UseKPEval", ParamDef::CHECK, "true"},
-        {"UseEvalMobility", ParamDef::CHECK, "false"},
+        {"UseEvalMobility", ParamDef::CHECK, "true"},
         {"ReportPartial", ParamDef::CHECK, "true"},
     };
 }

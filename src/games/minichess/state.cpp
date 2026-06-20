@@ -15,7 +15,7 @@
  *============================================================*/
 
 // KP material (10x scale for fine positional granularity)
-static const int kp_material[7] = {0, 20, 60, 70, 80, 200, 1000};
+static const int kp_material[7] = {0, 20, 60, 70, 80, 220, 1000};
 
 // Material-only (simple scale)
 static const int simple_material[7] = {0, 2, 6, 7, 8, 20, 100};
@@ -128,8 +128,26 @@ int State::evaluate(
                         oppn_score += king_tropism(oppn_piece, i, j, self_kr, self_kc);
                     }
                 }
+
+                if(self_piece == 1){
+                    int advance = (this->player == 0) ? (BOARD_H - 1 - i) : i;
+                    self_score += advance * 4;
+                }
+
+                if(oppn_piece == 1){
+                    int advance = (this->player == 0) ? i : (BOARD_H - 1 - i);
+                    oppn_score += advance * 4;
+                }
             }
         }
+        if(self_kr != -1){
+            self_score += 20 * (self_kr == (this->player == 0 ? BOARD_H - 1 : 0));
+        }
+
+        if(oppn_kr != -1){
+            oppn_score += 20 * (oppn_kr == (this->player == 0 ? 0 : BOARD_H - 1));
+        }
+
 
     }else{
         /* === Simple material-only eval === */
