@@ -113,7 +113,8 @@ int State::evaluate(
 
                 if(self_piece){
                     self_score += kp_material[self_piece];
-                    self_score += pst[self_piece - 1][i][j];
+                    int pst_row = (this->player == 0) ? i : (BOARD_H - 1 - i);
+                    self_score += pst[self_piece - 1][pst_row][j];
 
                     if(oppn_kr != -1 && oppn_kc != -1){
                         self_score += king_tropism(self_piece, i, j, oppn_kr, oppn_kc);
@@ -122,7 +123,9 @@ int State::evaluate(
 
                 if(oppn_piece){
                     oppn_score += kp_material[oppn_piece];
-                    oppn_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j];
+                    int oppn_player = 1 - this->player;
+                    int pst_row = (oppn_player == 0) ? i : (BOARD_H - 1 - i);
+                    oppn_score += pst[oppn_piece - 1][pst_row][j];
 
                     if(self_kr != -1 && self_kc != -1){
                         oppn_score += king_tropism(oppn_piece, i, j, self_kr, self_kc);
