@@ -115,32 +115,33 @@ int State::evaluate(
                     self_score += kp_material[self_piece];
                     self_score += pst[self_piece - 1][i][j];
 
-                    if(oppn_kr != -1 && oppn_kc != -1){ //enemy for self is oppn 
+                    if(oppn_kr != -1 && oppn_kc != -1){
                         self_score += king_tropism(self_piece, i, j, oppn_kr, oppn_kc);
                     }
                 }
 
                 if(oppn_piece){
                     oppn_score += kp_material[oppn_piece];
-                    oppn_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j]; //since it is mirrored
+                    oppn_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j];
 
-                    if(self_kr != -1 && self_kc != -1){ //enemy for oppn is self
+                    if(self_kr != -1 && self_kc != -1){
                         oppn_score += king_tropism(oppn_piece, i, j, self_kr, self_kc);
                     }
                 }
 
                 if(self_piece == 1){
                     int advance = (this->player == 0) ? (BOARD_H - 1 - i) : i;
-                    self_score += advance * 4;
+                    self_score += advance * 2;
+
                 }
 
                 if(oppn_piece == 1){
                     int advance = (this->player == 0) ? i : (BOARD_H - 1 - i);
-                    oppn_score += advance * 4;
+                    oppn_score += advance * 2;
+
                 }
             }
         }
-
 
     }else{
         /* === Simple material-only eval === */
@@ -180,7 +181,7 @@ int State::evaluate(
         
         if(oppn_state){
             if(oppn_state->game_state == WIN){
-                bonus -= 350;
+                bonus -= 1000;
             }
 
             oppn_mobility = oppn_state->legal_actions.size();

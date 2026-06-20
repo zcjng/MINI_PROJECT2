@@ -37,5 +37,15 @@ public:
 
     static ParamMap default_params();
     static std::vector<ParamDef> param_defs();
+    static int quiescence(
+        State *state,
+        GameHistory& history,
+        int ply,
+        int qdepth,
+        SearchContext& ctx,
+        const PParams& p,
+        int alpha,
+        int beta
+    );
 
 };

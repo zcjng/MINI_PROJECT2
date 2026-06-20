@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "state.hpp"
 #include "pvs.hpp"
+#include <cstdint>
 
 
 /*============================================================
@@ -9,6 +10,48 @@
  *
  * Negamax with alpha beta pruning. Caller manages memory.
  *============================================================*/
+
+//Transposition Table
+ enum TTFlag {
+    TT_EXACT,
+    TT_LOWER,
+    TT_UPPER
+};
+
+struct TTEntry {
+    uint64_t key = 0;
+    int depth = -1;
+    int score = 0;
+    TTFlag flag = TT_EXACT;
+    Move best_move;
+    bool valid = false;
+};
+
+static const int TT_SIZE = 1 << 18; 
+static TTEntry tt[TT_SIZE];
+
+static TTEntry* tt_probe(uint64_t key){
+    TTEntry& e = tt[key & (TT_SIZE - 1)];
+    if(e.valid && e.key == key){
+        return &e;
+    }
+    return nullptr;
+}
+
+static void tt_store(uint64_t key, int depth, int score, TTFlag flag, const Move& best_move){
+    TTEntry& e = tt[key & (TT_SIZE - 1)];
+
+    if(!e.valid || depth >= e.depth){
+        e.key = key;
+        e.depth = depth;
+        e.score = score;
+        e.flag = flag;
+        e.best_move = best_move;
+        e.valid = true;
+    }
+}
+
+//------------------------------
 
 static Move killer_moves[64][2];
 static bool killer_valid[64][2] = {};
@@ -28,7 +71,7 @@ static int piece_value(int p){
     return val[p];
 }
 
-static int move_score(State* state, const Move& m, int ply){
+static int move_score(State* state, const Move& m, int ply, const Move* tt_move = nullptr){
     int from_r = m.first.first;
     int from_c = m.first.second;
     int to_r = m.second.first;
@@ -38,6 +81,9 @@ static int move_score(State* state, const Move& m, int ply){
     int victim = state->piece_at(1 - state->player, to_r, to_c);
 
     int score = 0;
+    if(tt_move && same_move(m, *tt_move)){
+        score += 30000000;
+    }
 
     if(ply == 0 && last_best_valid && same_move(m, last_best_move)){
         score += 20000000;
@@ -69,14 +115,14 @@ static int move_score(State* state, const Move& m, int ply){
     return score;
 }
 
-static void order_moves(State* state, std::vector<Move>& moves, int ply){ //added ply 
+static void order_moves(State* state, std::vector<Move>& moves, int ply, const Move* tt_move = nullptr){
     std::sort(moves.begin(), moves.end(),
         [&](const Move& a, const Move& b){
-            return move_score(state, a, ply) > move_score(state, b, ply);
+            return move_score(state, a, ply, tt_move) > move_score(state, b, ply, tt_move);
         });
 }
 
-/*
+
 static bool is_capture(State* state, const Move& move) {
     int r = move.second.first;
     int c = move.second.second;
@@ -124,6 +170,8 @@ int PVS::quiescence(
     if(state->game_state == DRAW){
         return 0;
     }
+
+
 
     int stand_pat = state->evaluate(
         p.use_kp_eval,
@@ -181,7 +229,7 @@ int PVS::quiescence(
 
     return alpha;
 }
-*/
+
 
 int PVS::eval_ctx(
     State *state,
@@ -218,25 +266,56 @@ int PVS::eval_ctx(
     if(state->check_repetition(history, rep_score)){
         return rep_score;
     }
-    history.push(state->hash());
+
+    uint64_t key = state->hash();
+    int original_alpha = alpha;
+    int original_beta = beta;
+
+    TTEntry* entry = tt_probe(key);
+    if(entry && entry->depth >= depth){
+        if(entry->flag == TT_EXACT){
+            return entry->score;
+        }
+        if(entry->flag == TT_LOWER){
+            alpha = std::max(alpha, entry->score);
+        }else if(entry->flag == TT_UPPER){
+            beta = std::min(beta, entry->score);
+        }
+
+        if(alpha >= beta){
+            return entry->score;
+        }
+    }
+
+    history.push(key);
 
     if(depth <= 0){
-        int score = state->evaluate(
-            p.use_kp_eval,
-            p.use_eval_mobility,
-            &history
+        int score = PVS::quiescence(
+            state,
+            history,
+            ply,
+            2,
+            ctx,
+            p,
+            alpha,
+            beta
         );
-        history.pop(state->hash());
+        history.pop(key);
+
         return score;
     }
 
     /* === Negamax loop === */
     int best_score = M_MAX;
+    Move best_move;
+    bool has_best_move = false;
     
 
     std::vector<Move> moves = state->legal_actions;
 
-    order_moves(state, moves, ply);
+    const Move* tt_move = entry ? &entry->best_move : nullptr;
+    order_moves(state, moves, ply, tt_move);
+
 
     bool first_child = true;
 
@@ -253,9 +332,9 @@ int PVS::eval_ctx(
 
         int new_depth = depth - 1;
 
-        bool quiet = !state->piece_at(1 - state->player, action.second.first, action.second.second);
-        bool can_lmr = !first_child && quiet && depth >= 4 && move_index >= 4;
-
+        //bool quiet = !state->piece_at(1 - state->player, action.second.first, action.second.second);
+        //bool can_lmr = !first_child && quiet && depth >= 5 && move_index >= 6;
+        bool can_lmr = false;
         if(can_lmr){
             new_depth = depth - 2;
         }
@@ -336,11 +415,17 @@ int PVS::eval_ctx(
             }
         }
 
-
         delete next;
 
 
-        if(score > best_score) best_score = score;
+        if(score > best_score){
+            best_score = score;
+            best_move = action;
+            has_best_move = true;
+        }
+
+        
+
 
         alpha = std::max(alpha, best_score);
         if(alpha >= beta){
@@ -367,7 +452,20 @@ int PVS::eval_ctx(
         move_index++;
     }
 
-    history.pop(state->hash());
+    if(has_best_move){
+        TTFlag flag;
+
+        if(best_score <= original_alpha){
+            flag = TT_UPPER;
+        }else if(best_score >= original_beta){
+            flag = TT_LOWER;
+        }else{
+            flag = TT_EXACT;
+        }
+
+        tt_store(key, depth, best_score, flag, best_move);
+    }
+    history.pop(key);
     return best_score;
 }
 
@@ -415,7 +513,10 @@ SearchResult PVS::search(
         int total_moves = (int)state->legal_actions.size();
 
         std::vector<Move> moves = state->legal_actions;
-        order_moves(state, moves, 0);
+        uint64_t root_key = state->hash();
+        TTEntry* root_entry = tt_probe(root_key);
+        const Move* root_tt_move = root_entry ? &root_entry->best_move : nullptr;
+        order_moves(state, moves, 0, root_tt_move);
 
         bool first_child = true;
 
@@ -425,6 +526,9 @@ SearchResult PVS::search(
             }
 
             State* next = state->next_state(action);
+
+            
+
             bool same = next->same_player_as_parent();
 
             int score;
